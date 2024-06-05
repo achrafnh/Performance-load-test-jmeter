@@ -1,0 +1,88 @@
+variables:
+  host: devsecops-consulting.online
+  nbrVu: 600
+  executionTime: 1800 # 30 minutes
+  slaves: 172.30.42.181,172.30.42.182,172.30.42.184,172.30.42.183
+  WORK_DIR: $(Build.SourcesDirectory)
+  rampUpSec: 600 # 10 minutes ramp-up
+  loopCount: -1
+
+jobs:
+- job: jmeter
+  pool: 'perf'
+  displayName: Run JMeter tests
+  steps:
+
+  - task: qetza.replacetokens.replacetokens-task.replacetokens@3
+    displayName: 'Replace tokens in Charts'
+    inputs:
+      targetFiles: |
+        test/requestGet.jmx
+      escapeType: none
+      tokenPrefix: '__'
+      tokenSuffix: '__'
+
+
+  - task: Bash@3
+    displayName: 'Make stopAllWorkersJmeter.sh executable'
+    inputs:
+      targetType: inline
+      script: |
+        chmod +x $(Build.SourcesDirectory)/stopAllWorkersJmeter.sh
+        chmod +x $(Build.SourcesDirectory)/workers.sh
+        chmod +x $(Build.SourcesDirectory)/init.sh
+        chmod +x $(Build.SourcesDirectory)/run.sh
+
+  - task: Bash@3
+    displayName: 'Stop all workers before JMeter test'
+    inputs:
+      targetType: filePath
+      filePath: stopAllWorkersJmeter.sh
+      arguments: $(WORK_DIR) $(slaves)
+      workingDirectory: $(WORK_DIR)
+      failOnStderr: true
+
+
+
+
+  - task: Bash@3
+    displayName: 'Start all workers'
+    inputs:
+      targetType: filePath
+      filePath: workers.sh
+      arguments: $(WORK_DIR) $(slaves)
+      workingDirectory: $(WORK_DIR)
+      failOnStderr: false
+
+  - task: Bash@3
+    displayName: 'Script init'
+    inputs:
+      targetType: filePath
+      filePath: init.sh
+      arguments: $(WORK_DIR) $(slaves)
+      workingDirectory: $(WORK_DIR)
+      failOnStderr: false
+
+  - task: Bash@3
+    displayName: 'Execute JMeter tests'
+    inputs:
+      targetType: filePath
+      filePath: run.sh
+      arguments: $(host) $(nbrVu) $(executionTime) $(slaves) $(WORK_DIR) $(rampUpSec) $(loopCount)
+      workingDirectory: $(WORK_DIR)
+      failOnStderr: false
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish JMeter Report
+    inputs:
+      targetPath: '$(WORK_DIR)/reports/new'
+      artifact: 'jmeter'
+
+  - task: Bash@3
+    displayName: 'Stop all workers after JMeter test'
+    inputs:
+      targetType: filePath
+      filePath: stopAllWorkersJmeter.sh
+      arguments: $(WORK_DIR) $(slaves)
+      workingDirectory: $(WORK_DIR)
+      failOnStderr: true
